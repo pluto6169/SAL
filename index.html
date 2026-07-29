@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SAL — مساعدة المكتبة الذكي</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+
+  <!-- ============================================================
+    شاشة التحميل الأولية
+    ============================================================ -->
+  <div id="splash-screen" class="splash-screen">
+    <div class="splash-inner">
+      <img src="logo-full.png" alt="SAL — مساعدة المكتبة الذكي" class="splash-logo-full" />
+      <p class="splash-subtitle">مساعدة المكتبة الذكي · يجد لك الكتاب المناسب</p>
+      <div class="splash-loader">
+        <div class="splash-bar-wrap">
+          <div id="splash-bar" class="splash-bar"></div>
+        </div>
+        <p id="splash-status">جاري التجهيز...</p>
+        <p id="splash-file" class="splash-file"></p>
+      </div>
+      <p class="splash-note">⚡ يعمل داخل المتصفح · بدون إنترنت بعد التحميل</p>
+    </div>
+  </div>
+
+  <!-- ============================================================
+    رسالة خطأ
+    ============================================================ -->
+  <div id="fatal-error" class="fatal-error hidden">
+    <div class="fatal-inner">
+      <span class="fatal-icon">⚠️</span>
+      <h2>تعذّر التشغيل</h2>
+      <p id="fatal-msg"></p>
+      <button onclick="location.reload()" class="retry-btn">🔄 إعادة المحاولة</button>
+    </div>
+  </div>
+
+  <!-- ============================================================
+    شاشة اختيار الكلية — المدخل الرئيسي
+    ============================================================ -->
+  <div id="faculty-screen" class="faculty-screen hidden">
+    <div class="faculty-inner">
+      <div class="faculty-header">
+        <div class="faculty-icon">🏛️</div>
+        <h1>SAL</h1>
+        <p class="faculty-sub">اختر كليتك لتحصل على اقتراحات كتب مخصصة</p>
+      </div>
+      <div class="faculty-grid" id="faculty-grid">
+        <!-- الأزرار تُنشأ عبر JS من قائمة faculties -->
+      </div>
+      <p class="faculty-note">📌 يمكنك دائماً تغيير الكلية لاحقاً · سأفضّل كتب تخصصك دون حصر</p>
+    </div>
+  </div>
+
+  <!-- ============================================================
+    واجهة الشات الرئيسية
+    ============================================================ -->
+  <div id="app" class="app hidden">
+
+    <!-- ── الشريط العلوي ── -->
+    <header class="topbar">
+      <div class="topbar-right">
+        <img src="logo-icon.png" alt="SAL" class="topbar-logo" />
+        <div>
+          <p class="topbar-title">SAL <span class="topbar-badge">مساعدة المكتبة</span></p>
+          <p class="topbar-sub" id="ai-status-text">● جاهز</p>
+        </div>
+      </div>
+      <div class="topbar-left">
+        <button class="topbar-map" id="map-toggle" title="خريطة المكتبة">🗺️ <span>الخريطة</span></button>
+        <button class="topbar-faculty" id="faculty-toggle" title="تغيير الكلية">🏛️ <span
+            id="current-faculty-label">عام</span></button>
+        <button class="clear-btn" id="clear-btn" title="محادثة جديدة">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="1 4 1 10 7 10" />
+            <path d="M3.51 15a9 9 0 1 0 .49-4.71" />
+          </svg>
+          <span>جديد</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- ── منطقة الرسائل ── -->
+    <main class="chat-window" id="chat-window">
+
+      <!-- رسالة ترحيب -->
+      <div class="msg-row bot-row" id="welcome-msg">
+        <div class="avatar bot-avatar"><img src="logo-icon.png" alt="SAL" class="avatar-logo" /></div>
+        <div class="bubble bot-bubble">
+          <p>👋 أهلاً بك في <strong>SAL</strong> — مساعدة المكتبة الذكي.</p>
+          <p>أخبرني باهتمامك، أو اكتب عنوان كتاب، أو صف ما تبحث عنه — وسأجد لك أفضل الكتب مع <strong>رقم التصنيف
+              وموقع الرف</strong>.</p>
+          <div class="suggestion-chips" id="suggestion-chips">
+            <button class="chip" data-text="أريد رواية مشوقة فيها مغامرات">📖 مغامرات</button>
+            <button class="chip" data-text="أحب كتب التاريخ والحضارات القديمة">🏛️ تاريخ</button>
+            <button class="chip" data-text="أريد كتاباً في علم النفس أو الفلسفة">🧠 نفس وفلسفة</button>
+            <button class="chip" data-text="كتب خيال علمي أو مستقبل التكنولوجيا">🚀 خيال علمي</button>
+            <button class="chip" data-text="كتاب يساعدني على التطوير الشخصي">🌟 تطوير ذاتي</button>
+          </div>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- ── شريط الإدخال ── -->
+    <footer class="input-bar">
+      <div class="input-wrap">
+        <textarea id="user-input" class="chat-input" placeholder="اكتب ما تبحث عنه… (Ctrl+Enter لإرسال)"
+          rows="1"></textarea>
+        <div id="autocomplete-box" class="autocomplete-box hidden"></div>
+        <button id="send-btn" class="send-btn" title="إرسال">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+            stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13" />
+            <polygon points="22 2 15 22 11 13 2 9 22 2" />
+          </svg>
+        </button>
+      </div>
+      <p class="input-hint">Ctrl+Enter للإرسال · يعمل بالكامل داخل متصفحك</p>
+    </footer>
+
+  </div>
+
+  <!-- ============================================================
+    نافذة وصل الاستعارة (Thermal Receipt Modal)
+    ============================================================ -->
+  <div id="receipt-modal" class="modal-overlay hidden">
+    <div class="receipt-card">
+      <div class="receipt-header-zig"></div>
+      <div class="receipt-body">
+        <img src="logo-icon.png" alt="SAL" class="receipt-logo" />
+        <h3 class="receipt-store-title">SAL · مكتبة الجامعة</h3>
+        <p class="receipt-sub">وصل استعلام · احتفظ به لتوجيهك إلى الرف</p>
+        <div class="receipt-divider">────────────────────────</div>
+
+        <div class="receipt-info-group">
+          <p><strong>التاريخ:</strong> <span id="rec-date"></span></p>
+          <p><strong>الوقت:</strong> <span id="rec-time"></span></p>
+          <p><strong>الكلية:</strong> <span id="rec-faculty">غير محدد</span></p>
+        </div>
+
+        <div class="receipt-divider">════════════════════════</div>
+
+        <div class="receipt-book-info">
+          <p class="rec-book-title" id="rec-title">اسم الكتاب</p>
+          <p class="rec-book-author" id="rec-author">الكاتب</p>
+
+          <div class="rec-highlight-box">
+            <span class="rec-label">🔢 رقم التصنيف</span>
+            <span class="rec-big-code" id="rec-callnumber">000.000</span>
+          </div>
+
+          <div class="rec-highlight-box shelf-box">
+            <span class="rec-label">📍 موقع الرف</span>
+            <span class="rec-big-shelf" id="rec-location">قاعة 1 · رف B</span>
+          </div>
+        </div>
+
+        <div class="receipt-divider">════════════════════════</div>
+
+        <div class="receipt-map-guide">
+          <p class="map-guide-title">🗺️ خريطة الوصول إلى الرف</p>
+          <div class="receipt-mini-map">
+            <span class="map-step map-kiosk">الكشك</span>
+            <span class="map-path">→</span>
+            <span class="map-step map-shelf" id="rec-shelf-guide">رف B</span>
+          </div>
+          <p class="map-note" id="rec-map-note">اتجه من الكشك إلى الممر ثم إلى الرف المحدد أعلاه.</p>
+        </div>
+
+        <div class="receipt-divider">────────────────────────</div>
+
+        <div class="receipt-barcode">
+          <span class="barcode-symbols">||||| ||| ||||||| |||| ||| ||||||</span>
+          <p class="barcode-num" id="rec-barcode-id">REQ-00000</p>
+        </div>
+
+        <p class="receipt-footer-msg">✂️ قص هذا الوصل وتوجه إلى الرف المحدد</p>
+      </div>
+
+      <div class="receipt-actions">
+        <button class="btn-print-act" onclick="window.print()">🖨️ طباعة</button>
+        <button class="btn-close-modal" onclick="closeReceiptModal()">إغلاق</button>
+      </div>
+    </div>
+  </div>
+  <!-- ============================================================
+  نافذة تكبير الصورة (Infographic Lightbox)
+  ============================================================ -->
+  <div id="image-modal" class="modal-overlay hidden" onclick="closeImageModal()">
+    <span class="close-img-modal">&times;</span>
+    <img class="modal-img-content" id="modal-img" src="" alt="Infographic Zoomed" />
+  </div>
+  <!-- ============================================================
+    نافذة "رؤية SAL المستقبلية" — عرض مفاهيمي تفاعلي للمزايا القادمة
+    ملاحظة: كل ما هنا محاكاة (Simulation) توضيحية داخل المتصفح فقط،
+    الهدف إثبات أن الفكرة قابلة للتنفيذ تقنياً لاحقاً عبر ربطها
+    بقارئ بطاقات فعلي / نظام المكتبة / خرائط داخلية حقيقية.
+    ============================================================ -->
+  <!-- ============================================================
+    نافذة طلب حجز الكتاب
+    ============================================================ -->
+  <div id="hold-modal" class="modal-overlay hidden">
+    <div class="hold-card">
+      <div class="hold-header">
+        <div>
+          <h3>📌 طلب حجز كتاب</h3>
+          <p class="hold-sub">أدخل رقم الهاتف أو البريد الإلكتروني ليصلك إشعار عند توفر الكتاب.</p>
+        </div>
+        <button class="hold-close" onclick="closeHoldModal()">&times;</button>
+      </div>
+
+      <div class="hold-body">
+        <div class="hold-book-info">
+          <p class="hold-book-title" id="hold-title">اسم الكتاب</p>
+          <p class="hold-book-status" id="hold-status">الحالة: غير متوفر</p>
+        </div>
+
+        <form id="hold-form" class="hold-form">
+          <label for="hold-contact">الهاتف أو البريد الإلكتروني</label>
+          <input id="hold-contact" type="text" placeholder="مثلاً 0123456789 أو name@example.com" required />
+          <button type="submit" class="btn-hold-confirm">احجزه لي عند التوفر</button>
+        </form>
+
+        <div class="hold-confirmation hidden" id="hold-confirmation"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+    نافذة خريطة المكتبة التفاعلية (Library Map Modal)
+    ============================================================ -->
+  <div id="library-map-modal" class="modal-overlay hidden">
+    <div class="map-card">
+      <div class="map-header">
+        <div>
+          <h3>🗺️ خريطة المكتبة</h3>
+          <p class="map-header-sub">اضغط على الرف أو استخدم الأسهم لتحريك الشخصية</p>
+        </div>
+        <button class="map-close" onclick="window.closeLibraryMapModal()">&times;</button>
+      </div>
+      <div class="map-floor-tabs">
+        <button class="map-floor-tab active" data-floor="ref">📚 المرجعي</button>
+        <button class="map-floor-tab" data-floor="floor1">1️⃣ الأول</button>
+        <button class="map-floor-tab" data-floor="floor2">2️⃣ الثاني</button>
+        <button class="map-floor-tab" data-floor="floor3">3️⃣ الثالث</button>
+      </div>
+      <div class="map-canvas-wrap">
+        <canvas id="library-map-canvas"></canvas>
+      </div>
+      <div class="map-legend">
+        <span>🧑‍🎓 = أنت</span>
+        <span>📕 = رف</span>
+        <span>🚪 = المدخل</span>
+        <span>⌨️ الأسهم للتحريك</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+    منطقة الطباعة الخفية (للطباعة الحرارية)
+    ============================================================ -->
+  <div id="print-ticket" class="hidden"></div>
+
+  <script type="module" src="script.js"></script>
+  <script type="module" src="library-map.js"></script>
+</body>
+
+</html>
