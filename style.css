@@ -1608,41 +1608,6 @@ body {
   border-color: var(--rose);
 }
 
-/* Tabs الطوابق */
-.map-floor-tabs {
-  display: flex;
-  gap: 6px;
-  padding: 10px 22px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-  overflow-x: auto;
-}
-
-.map-floor-tab {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  border-radius: 99px;
-  padding: 6px 16px;
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: 0.2s;
-  white-space: nowrap;
-}
-
-.map-floor-tab:hover {
-  background: rgba(var(--accent-rgb), 0.1);
-  color: var(--accent);
-  border-color: rgba(var(--accent-rgb), 0.3);
-}
-
-.map-floor-tab.active {
-  background: rgba(var(--accent-rgb), 0.15);
-  color: var(--accent);
-  border-color: var(--accent);
-  font-weight: 600;
-}
-
 /* Canvas wrapper */
 .map-canvas-wrap {
   flex: 1;
@@ -1650,11 +1615,11 @@ body {
   padding: 12px;
   min-height: 350px;
   display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 .map-canvas-wrap canvas {
+  margin: auto;
+  /* يتوسط لما يكون أصغر من الحاوية، ويفضل قابل للسكرول بالكامل لما يكون أكبر منها */
   border-radius: 12px;
   border: 1px solid var(--border);
   cursor: crosshair;
@@ -1870,4 +1835,4 @@ body {
   .btn-map-show {
     flex: 0 0 100%;
   }
-}
+}
