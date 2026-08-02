@@ -1,128 +1,203 @@
 // ============================================================
-//  library-map.js — خريطة المكتبة التفاعلية 2D
-//  ملف مستقل يستورد الكاتالوج ويرسم خريطة الطوابق
-//  مع شخصية متحركة بالأسهم أو بالضغط على الأرفف
+//  library-map.js — خريطة المكتبة التفاعلية 2D (طابق واحد)
+//  المكتبة مقسّمة على أرفف حقيقية حسب نظام ديوي العشري (Dewey)
+//  كل قسم رئيسي (000، 100 ... 900) له صف أرفف خاص بلونه واسمه
+//  شخصية تتحرك بالأسهم أو بالضغط على أي رف
 // ============================================================
 
 import { BOOKS_CATALOG } from './catalog.js';
 
-// ─── تعريف الطوابق والأرفف ───
-// كل طابق يحتوي على مصفوفة أرفف، كل رف له id ولون وموضع
-const FLOOR_DEFS = {
-  'ref': {
-    name: 'القسم المرجعي',
-    icon: '📚',
-    color: '#a855f7',
-    shelves: []
-  },
-  'floor1': {
-    name: 'الطابق الأول',
-    icon: '1️⃣',
-    color: '#22d3ee',
-    shelves: []
-  },
-  'floor2': {
-    name: 'الطابق الثاني',
-    icon: '2️⃣',
-    color: '#34d399',
-    shelves: []
-  },
-  'floor3': {
-    name: 'الطابق الثالث',
-    icon: '3️⃣',
-    color: '#fbbf24',
-    shelves: []
+// ─── تصنيف ديوي العشري الرئيسي (000–900) ───
+// كل فئة = صف أرفف مستقل بلون وأيقونة مميزة تعطي إحساس "الحياة" للخريطة
+const DEWEY_CLASSES = [
+  { min: 0, name: 'الحوسبة والمعرفة العامة', icon: '💻', color: '#a855f7' },
+  { min: 100, name: 'الفلسفة وعلم النفس', icon: '🧠', color: '#6366f1' },
+  { min: 200, name: 'الأديان والمعتقدات', icon: '🕊️', color: '#14b8a6' },
+  { min: 300, name: 'العلوم الاجتماعية', icon: '🏛️', color: '#3b82f6' },
+  { min: 400, name: 'اللغات واللغويات', icon: '🗣️', color: '#22d3ee' },
+  { min: 500, name: 'العلوم والرياضيات', icon: '🔬', color: '#22c55e' },
+  { min: 600, name: 'التكنولوجيا والتطبيقات', icon: '⚙️', color: '#f97316' },
+  { min: 700, name: 'الفنون والترفيه', icon: '🎨', color: '#ec4899' },
+  { min: 800, name: 'الأدب', icon: '📖', color: '#ef4444' },
+  { min: 900, name: 'التاريخ والجغرافيا', icon: '🗺️', color: '#eab308' }
+];
+
+// ─── بناء الأقسام والأرفف من الكاتالوج ───
+let sections = [];          // [{min,name,icon,color,books[],units[]}]
+const bookUnitIndex = {};   // biblio_id → { sectionIdx, unitId }
+
+function hashString(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
   }
-};
-
-// ─── استخلاص الأرفف من الكاتالوج تلقائياً ───
-function extractShelves() {
-  const shelfMap = {}; // shelfCode → { floor, books[], label }
-
-  for (const book of BOOKS_CATALOG) {
-    const loc = book.location || '';
-    // استخلاص كود الرف من نهاية location مثل "REF-A" أو "P-07"
-    const codeMatch = loc.match(/([A-Z][\w-]+\d*)\s*$/i);
-    if (!codeMatch) continue;
-    const code = codeMatch[1];
-
-    // تحديد الطابق
-    let floor = 'floor1';
-    if (/القسم المرجعي/i.test(loc)) floor = 'ref';
-    else if (/الطابق الأول/i.test(loc)) floor = 'floor1';
-    else if (/الطابق الثاني/i.test(loc)) floor = 'floor2';
-    else if (/الطابق الثالث/i.test(loc)) floor = 'floor3';
-
-    if (!shelfMap[code]) {
-      // استخلاص اسم الرف الوصفي
-      const labelMatch = loc.match(/رف\s+(.+?)\s+[A-Z]/i);
-      const label = labelMatch ? labelMatch[1] : code;
-      shelfMap[code] = { floor, books: [], label, code };
-    }
-    shelfMap[code].books.push(book);
-  }
-
-  // توزيع الأرفف على الطوابق
-  for (const [code, data] of Object.entries(shelfMap)) {
-    if (FLOOR_DEFS[data.floor]) {
-      FLOOR_DEFS[data.floor].shelves.push(data);
-    }
-  }
+  return h >>> 0;
 }
 
-extractShelves();
+function mulberry32(seed) {
+  return function () {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
-// ─── ثوابت الرسم ───
-const TILE = 56;           // حجم المربع الواحد
-const CHAR_SIZE = 28;      // حجم الشخصية
-const MOVE_SPEED = 3;      // سرعة الحركة بالبكسل
-const SHELF_W = 80;        // عرض الرف
-const SHELF_H = 40;        // ارتفاع الرف
-const PADDING = 40;        // مسافة داخلية
+function shadeColor(hex, percent) {
+  const num = parseInt(hex.slice(1), 16);
+  let r = (num >> 16) + percent;
+  let g = ((num >> 8) & 0x00ff) + percent;
+  let b = (num & 0x0000ff) + percent;
+  r = Math.max(0, Math.min(255, r));
+  g = Math.max(0, Math.min(255, g));
+  b = Math.max(0, Math.min(255, b));
+  return '#' + (0x1000000 + r * 0x10000 + g * 0x100 + b).toString(16).slice(1);
+}
 
-// ─── حالة الخريطة ───
-let canvas, ctx;
-let currentFloor = 'ref';
-let charX = 120, charY = 120;
-let targetX = 120, targetY = 120;
-let isMoving = false;
-let highlightShelf = null;
-let tooltipShelf = null;
-let shelfRects = [];      // { x, y, w, h, shelf } مواضع الأرفف المرسومة
-let animFrameId = null;
-let keysDown = {};
-let mapWidth = 800;
-let mapHeight = 500;
+function buildSections() {
+  sections = DEWEY_CLASSES.map(def => ({ ...def, books: [], units: [] }));
 
-// ─── حساب تخطيط الأرفف ───
-function layoutShelves(floor) {
-  const shelves = FLOOR_DEFS[floor].shelves;
-  const cols = Math.ceil(Math.sqrt(shelves.length * 1.5));
-  const rows = Math.ceil(shelves.length / cols);
+  for (const book of BOOKS_CATALOG) {
+    const d = parseFloat(book.dewey);
+    const dewey = isNaN(d) ? 0 : d;
+    let idx = Math.floor(dewey / 100);
+    if (idx < 0) idx = 0;
+    if (idx > 9) idx = 9;
+    sections[idx].books.push(book);
+  }
 
-  const gapX = SHELF_W + 30;
-  const gapY = SHELF_H + 50;
-
-  mapWidth = Math.max(600, cols * gapX + PADDING * 2 + 100);
-  mapHeight = Math.max(400, rows * gapY + PADDING * 2 + 120);
-
-  const rects = [];
-  const startX = PADDING + 80;
-  const startY = PADDING + 80;
-
-  shelves.forEach((shelf, i) => {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    rects.push({
-      x: startX + col * gapX,
-      y: startY + row * gapY,
-      w: SHELF_W,
-      h: SHELF_H,
-      shelf
+  // ترتيب الكتب داخل كل قسم برقم ديوي ثم العنوان — ترتيب رفوف واقعي
+  sections.forEach(sec => {
+    sec.books.sort((a, b) => {
+      const da = parseFloat(a.dewey) || 0;
+      const db = parseFloat(b.dewey) || 0;
+      if (da !== db) return da - db;
+      return (a.title || '').localeCompare(b.title || '', 'ar');
     });
   });
 
+  // تقسيم كل قسم إلى عدة "خزانات كتب" (أرفف فعلية) بحيث لا يوجد رف واحد
+  // يحمل مئات الكتب — كل خزانة تمثل مكتبة حقيقية بحمولة معقولة
+  sections.forEach((sec, sIdx) => {
+    const count = sec.books.length;
+    const unitCount = Math.max(2, Math.min(14, Math.ceil(count / 45)));
+    const perUnit = Math.ceil(count / unitCount);
+
+    for (let u = 0; u < unitCount; u++) {
+      const chunk = sec.books.slice(u * perUnit, (u + 1) * perUnit);
+      if (chunk.length === 0) continue;
+      const first = chunk[0], last = chunk[chunk.length - 1];
+      const id = `D${sec.min}-${u + 1}`;
+      const unit = {
+        id,
+        code: id,
+        label: `${sec.name} · ${u + 1}/${unitCount}`,
+        range: `${first.dewey}–${last.dewey}`,
+        books: chunk,
+        color: sec.color,
+        sectionIdx: sIdx,
+        seed: hashString(id)
+      };
+      sec.units.push(unit);
+      chunk.forEach(b => { bookUnitIndex[b.biblio_id] = { sectionIdx: sIdx, unitId: id }; });
+    }
+  });
+}
+
+buildSections();
+
+// ─── ثوابت الرسم ───
+const CHAR_SIZE = 28;
+const MOVE_SPEED = 3.2;
+const UNIT_W = 92;
+const UNIT_H = 66;
+const UNIT_GAP_X = 20;
+const UNIT_GAP_Y = 16;
+const CONTENT_W = 640;              // عرض منطقة المحتوى قبل اللف على أسطر جديدة
+const PADDING = 44;
+const LOBBY_H = 150;                // مساحة المدخل وكشك الاستقبال أعلى الخريطة
+const READING_CORNER_H = 110;       // ركن القراءة أسفل الخريطة
+
+// ─── حالة الخريطة ───
+let canvas, ctx;
+let charX = 110, charY = 110;
+let targetX = 110, targetY = 110;
+let isMoving = false;
+let highlightShelf = null;
+let tooltipShelf = null;
+let shelfRects = [];      // { x, y, w, h, shelf: unit }
+let animFrameId = null;
+let keysDown = {};
+let mapWidth = 800;
+let mapHeight = 700;
+let plants = [];          // مواضع نباتات الزينة
+let lamps = [];           // مواضع أضواء السقف
+
+// ─── حساب تخطيط الأرفف (صفوف ديوي مع لفّ الأسطر) ───
+function layoutSections() {
+  const unitsPerLine = Math.max(1, Math.floor((CONTENT_W + UNIT_GAP_X) / (UNIT_W + UNIT_GAP_X)));
+  const rects = [];
+  plants = [];
+  lamps = [];
+
+  let y = PADDING + LOBBY_H;
+  const startX = PADDING + 30;
+
+  sections.forEach(sec => {
+    const lines = Math.max(1, Math.ceil(sec.units.length / unitsPerLine));
+    const rowLabelH = 34;
+    sec.rowY = y;
+    sec.rowH = rowLabelH + lines * UNIT_H + (lines - 1) * UNIT_GAP_Y + 26;
+
+    sec.units.forEach((unit, i) => {
+      const line = Math.floor(i / unitsPerLine);
+      const col = i % unitsPerLine;
+      unit.x = startX + col * (UNIT_W + UNIT_GAP_X);
+      unit.y = sec.rowY + rowLabelH + line * (UNIT_H + UNIT_GAP_Y);
+      unit.w = UNIT_W;
+      unit.h = UNIT_H;
+      rects.push({ x: unit.x, y: unit.y, w: unit.w, h: unit.h, shelf: unit });
+    });
+
+    // نبتة زينة في نهاية كل صف
+    plants.push({ x: startX + CONTENT_W + 26, y: sec.rowY + sec.rowH / 2 });
+    // ضوء سقف فوق كل صف
+    lamps.push({ x: startX + CONTENT_W / 2, y: sec.rowY + 6 });
+
+    y += sec.rowH;
+  });
+
+  mapWidth = Math.max(760, startX + CONTENT_W + 90);
+  mapHeight = y + READING_CORNER_H + PADDING;
+
   return rects;
+}
+
+// ─── رسم عمود كتب (spines) داخل رف — نمط ثابت (seeded) لا يتغير كل فريم ───
+function drawBookSpines(unit) {
+  const rng = mulberry32(unit.seed);
+  const tiers = 2;
+  const tierH = (unit.h - 14) / tiers;
+  for (let t = 0; t < tiers; t++) {
+    const tierY = unit.y + 8 + t * tierH;
+    let x = unit.x + 6;
+    const maxX = unit.x + unit.w - 6;
+    while (x < maxX - 4) {
+      const w = 3 + rng() * 5;
+      const h = tierH * (0.55 + rng() * 0.4);
+      const shade = -30 + Math.floor(rng() * 70);
+      ctx.fillStyle = shadeColor(unit.color, shade);
+      ctx.fillRect(x, tierY + (tierH - h), w, h);
+      x += w + 1.5;
+    }
+    // خط الرف
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(unit.x + 3, tierY + tierH);
+    ctx.lineTo(unit.x + unit.w - 3, tierY + tierH);
+    ctx.stroke();
+  }
 }
 
 // ─── رسم الخريطة ───
@@ -135,117 +210,203 @@ function drawMap() {
   canvas.style.height = mapHeight + 'px';
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  const floorDef = FLOOR_DEFS[currentFloor];
-
-  // خلفية
-  ctx.fillStyle = '#0d0d10';
+  // ─ أرضية خشبية (باركيه) ─
+  ctx.fillStyle = '#151217';
   ctx.fillRect(0, 0, mapWidth, mapHeight);
-
-  // شبكة خفيفة
+  const plankW = 34;
+  for (let x = 0; x < mapWidth; x += plankW) {
+    ctx.fillStyle = (Math.floor(x / plankW) % 2 === 0) ? 'rgba(255,255,255,0.015)' : 'rgba(0,0,0,0.06)';
+    ctx.fillRect(x, 0, plankW, mapHeight);
+  }
   ctx.strokeStyle = 'rgba(255,255,255,0.03)';
   ctx.lineWidth = 1;
-  for (let x = 0; x < mapWidth; x += TILE) {
+  for (let x = 0; x < mapWidth; x += plankW) {
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, mapHeight); ctx.stroke();
   }
-  for (let y = 0; y < mapHeight; y += TILE) {
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(mapWidth, y); ctx.stroke();
-  }
 
-  // حدود الطابق
-  ctx.strokeStyle = floorDef.color + '30';
+  // ─ حدود القاعة ─
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
   ctx.lineWidth = 2;
-  ctx.strokeRect(20, 20, mapWidth - 40, mapHeight - 40);
+  ctx.strokeRect(14, 14, mapWidth - 28, mapHeight - 28);
 
-  // عنوان الطابق
-  ctx.fillStyle = floorDef.color;
-  ctx.font = 'bold 16px Segoe UI, Tajawal, sans-serif';
-  ctx.textAlign = 'right';
-  ctx.fillText(floorDef.icon + ' ' + floorDef.name, mapWidth - 35, 50);
+  drawLobby();
 
-  // المدخل
-  ctx.fillStyle = '#22d3ee';
-  ctx.fillRect(30, mapHeight / 2 - 20, 18, 40);
-  ctx.fillStyle = '#0d0d10';
-  ctx.font = '10px Segoe UI, Tajawal, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('🚪', 39, mapHeight / 2 + 4);
+  // ─ صفوف الأقسام ─
+  sections.forEach(sec => drawSectionRow(sec));
 
-  // الكشك
-  ctx.fillStyle = '#a855f720';
-  ctx.strokeStyle = '#a855f7';
-  ctx.lineWidth = 1.5;
-  const kioskX = 70, kioskY = mapHeight / 2 - 15;
-  roundRect(ctx, kioskX, kioskY, 36, 30, 6);
-  ctx.fill(); ctx.stroke();
-  ctx.fillStyle = '#a855f7';
-  ctx.font = '9px Segoe UI, Tajawal, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('الكشك', kioskX + 18, kioskY + 19);
+  drawReadingCorner();
 
-  // رسم الأرفف
-  shelfRects.forEach(rect => {
-    const isHighlight = highlightShelf && rect.shelf.code === highlightShelf;
-    const isHover = tooltipShelf && rect.shelf.code === tooltipShelf.code;
+  // نباتات وأضواء
+  plants.forEach(p => drawPlant(p.x, p.y));
+  lamps.forEach(l => drawLamp(l.x, l.y));
 
-    // خلفية الرف
-    if (isHighlight) {
-      ctx.fillStyle = floorDef.color + '40';
-      ctx.strokeStyle = floorDef.color;
-      ctx.lineWidth = 2.5;
-      // تأثير pulse
-      const pulse = Math.sin(Date.now() / 300) * 3;
-      ctx.shadowColor = floorDef.color;
-      ctx.shadowBlur = 12 + pulse;
-    } else if (isHover) {
-      ctx.fillStyle = 'rgba(255,255,255,0.08)';
-      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-      ctx.lineWidth = 1.5;
-    } else {
-      ctx.fillStyle = '#1e1e22';
-      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-      ctx.lineWidth = 1;
-    }
+  // الأرفف نفسها (فوق النباتات/الأضواء لتبقى واضحة)
+  shelfRects.forEach(rect => drawUnit(rect.shelf));
 
-    roundRect(ctx, rect.x, rect.y, rect.w, rect.h, 6);
-    ctx.fill(); ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.shadowColor = 'transparent';
-
-    // أيقونة الرف
-    ctx.fillStyle = isHighlight ? '#fff' : 'rgba(255,255,255,0.5)';
-    ctx.font = '14px Segoe UI';
-    ctx.textAlign = 'center';
-    ctx.fillText('📕', rect.x + rect.w / 2, rect.y + 18);
-
-    // كود الرف
-    ctx.fillStyle = isHighlight ? '#fff' : 'rgba(255,255,255,0.4)';
-    ctx.font = '9px Courier New, monospace';
-    ctx.fillText(rect.shelf.code, rect.x + rect.w / 2, rect.y + rect.h - 5);
-
-    // عدد الكتب
-    const count = rect.shelf.books.length;
-    ctx.fillStyle = floorDef.color;
-    ctx.font = 'bold 8px Segoe UI';
-    ctx.fillText(count + '', rect.x + rect.w - 8, rect.y + 12);
-  });
-
-  // رسم الشخصية
   drawCharacter(charX, charY);
 
-  // tooltip
-  if (tooltipShelf) {
-    drawTooltip(tooltipShelf);
+  if (tooltipShelf) drawTooltip(tooltipShelf);
+}
+
+function drawLobby() {
+  // سجادة ترحيب
+  ctx.fillStyle = 'rgba(168,85,247,0.10)';
+  roundRect(ctx, 40, 40, 170, LOBBY_H - 60, 10);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(168,85,247,0.35)';
+  ctx.lineWidth = 1.5;
+  roundRect(ctx, 48, 48, 154, LOBBY_H - 76, 8);
+  ctx.stroke();
+
+  // الباب
+  ctx.fillStyle = '#22d3ee';
+  ctx.fillRect(24, LOBBY_H / 2 + 18, 18, 46);
+  ctx.fillStyle = '#0d0d10';
+  ctx.font = '11px Segoe UI, Tajawal, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('🚪', 33, LOBBY_H / 2 + 46);
+
+  // كشك الاستقبال
+  const kioskX = 90, kioskY = 60;
+  ctx.fillStyle = 'rgba(251,191,36,0.15)';
+  ctx.strokeStyle = '#fbbf24';
+  ctx.lineWidth = 1.5;
+  roundRect(ctx, kioskX, kioskY, 90, 46, 8);
+  ctx.fill(); ctx.stroke();
+  ctx.font = '18px Segoe UI Emoji';
+  ctx.textAlign = 'center';
+  ctx.fillText('🛎️', kioskX + 45, kioskY + 22);
+  ctx.fillStyle = '#fbbf24';
+  ctx.font = '10px Segoe UI, Tajawal, sans-serif';
+  ctx.fillText('كشك الاستقبال', kioskX + 45, kioskY + 40);
+
+  // عنوان المكتبة
+  ctx.fillStyle = '#f4f4f5';
+  ctx.font = 'bold 18px Segoe UI, Tajawal, sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('📚 خريطة المكتبة — تصنيف ديوي العشري', mapWidth - 40, 55);
+  ctx.fillStyle = 'rgba(255,255,255,0.45)';
+  ctx.font = '11px Segoe UI, Tajawal, sans-serif';
+  ctx.fillText('كل صف يمثل قسمًا رئيسيًا، وكل خزانة رفًا فعليًا داخله', mapWidth - 40, 76);
+}
+
+function drawSectionRow(sec) {
+  // خلفية شريط خفيفة بلون القسم لتمييز الصف
+  ctx.fillStyle = sec.color + '0c';
+  ctx.fillRect(20, sec.rowY - 4, mapWidth - 40, sec.rowH - 6);
+
+  // شارة اسم القسم
+  const badgeW = 300;
+  const badgeX = mapWidth - 40 - badgeW;
+  const badgeY = sec.rowY - 2;
+  ctx.fillStyle = sec.color + '22';
+  ctx.strokeStyle = sec.color;
+  ctx.lineWidth = 1.3;
+  roundRect(ctx, badgeX, badgeY, badgeW, 26, 13);
+  ctx.fill(); ctx.stroke();
+
+  ctx.fillStyle = sec.color;
+  ctx.font = 'bold 13px Segoe UI, Tajawal, sans-serif';
+  ctx.textAlign = 'right';
+  const rangeLabel = sec.min === 0 ? '000–099' : `${sec.min}–${sec.min + 99}`;
+  ctx.fillText(`${sec.icon} ${sec.name}  ·  ${rangeLabel}`, badgeX + badgeW - 12, badgeY + 18);
+
+  // عدد الكتب
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.font = '10px Segoe UI, Tajawal, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(`${sec.books.length} كتاب`, 40, badgeY + 18);
+}
+
+function drawUnit(unit) {
+  const isHighlight = highlightShelf && unit.code === highlightShelf;
+  const isHover = tooltipShelf && unit.code === tooltipShelf.code;
+
+  // ظل أرضي بسيط لإحساس العمق
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.fillRect(unit.x + 3, unit.y + unit.h - 2, unit.w - 4, 5);
+
+  // إطار الخزانة الخشبي
+  ctx.fillStyle = '#241a12';
+  roundRect(ctx, unit.x, unit.y, unit.w, unit.h, 6);
+  ctx.fill();
+
+  if (isHighlight) {
+    const pulse = Math.sin(Date.now() / 300) * 3;
+    ctx.shadowColor = unit.color;
+    ctx.shadowBlur = 14 + pulse;
+    ctx.strokeStyle = unit.color;
+    ctx.lineWidth = 2.5;
+  } else if (isHover) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 1.8;
+  } else {
+    ctx.strokeStyle = unit.color + '80';
+    ctx.lineWidth = 1.2;
   }
+  roundRect(ctx, unit.x, unit.y, unit.w, unit.h, 6);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.shadowColor = 'transparent';
+
+  // كتب ملونة داخل الخزانة
+  drawBookSpines(unit);
+
+  // كود الرف
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.font = '8px Courier New, monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(unit.range, unit.x + unit.w / 2, unit.y - 3);
+
+  // عدد الكتب
+  ctx.fillStyle = unit.color;
+  ctx.font = 'bold 8px Segoe UI';
+  ctx.fillText(unit.books.length + '', unit.x + unit.w - 10, unit.y + 10);
+}
+
+function drawPlant(x, y) {
+  ctx.font = '18px Segoe UI Emoji';
+  ctx.textAlign = 'center';
+  ctx.fillText('🪴', x, y);
+}
+
+function drawLamp(x, y) {
+  const grad = ctx.createRadialGradient(x, y, 2, x, y, 40);
+  grad.addColorStop(0, 'rgba(255,244,200,0.18)');
+  grad.addColorStop(1, 'rgba(255,244,200,0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(x, y, 40, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.font = '12px Segoe UI Emoji';
+  ctx.textAlign = 'center';
+  ctx.fillText('💡', x, y + 4);
+}
+
+function drawReadingCorner() {
+  const y = mapHeight - READING_CORNER_H;
+  ctx.fillStyle = 'rgba(34,211,238,0.06)';
+  roundRect(ctx, 30, y, mapWidth - 60, READING_CORNER_H - 24, 12);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(34,211,238,0.25)';
+  ctx.lineWidth = 1.2;
+  roundRect(ctx, 30, y, mapWidth - 60, READING_CORNER_H - 24, 12);
+  ctx.stroke();
+
+  ctx.font = '22px Segoe UI Emoji';
+  ctx.textAlign = 'right';
+  ctx.fillText('🪑📖 ☕ 🪑', mapWidth - 60, y + 40);
+  ctx.fillStyle = '#22d3ee';
+  ctx.font = '11px Segoe UI, Tajawal, sans-serif';
+  ctx.fillText('ركن القراءة', mapWidth - 60, y + 58);
 }
 
 function drawCharacter(x, y) {
-  // ظل
   ctx.fillStyle = 'rgba(168, 85, 247, 0.2)';
   ctx.beginPath();
   ctx.ellipse(x, y + CHAR_SIZE / 2 + 2, CHAR_SIZE / 2.5, 4, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // الشخصية
   ctx.font = CHAR_SIZE + 'px Segoe UI Emoji, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -254,15 +415,14 @@ function drawCharacter(x, y) {
 }
 
 function drawTooltip(shelf) {
-  // إيجاد موضع الرف
   const rect = shelfRects.find(r => r.shelf.code === shelf.code);
   if (!rect) return;
 
   const lines = [
-    '📍 ' + shelf.label + ' (' + shelf.code + ')',
+    '📍 ' + shelf.label,
+    '🔢 ديوي ' + shelf.range,
     '📚 ' + shelf.books.length + ' كتاب',
   ];
-  // أول 3 كتب
   shelf.books.slice(0, 3).forEach(b => {
     lines.push('  · ' + (b.title.length > 28 ? b.title.slice(0, 28) + '…' : b.title));
   });
@@ -281,19 +441,17 @@ function drawTooltip(shelf) {
   if (tx < 10) tx = 10;
   if (tx + maxW > mapWidth - 10) tx = mapWidth - maxW - 10;
 
-  // خلفية
   ctx.fillStyle = 'rgba(18, 18, 20, 0.95)';
-  ctx.strokeStyle = 'rgba(168, 85, 247, 0.4)';
+  ctx.strokeStyle = shelf.color + '80';
   ctx.lineWidth = 1;
   roundRect(ctx, tx, ty, maxW, boxH, 10);
   ctx.fill(); ctx.stroke();
 
-  // نص
   ctx.fillStyle = '#f4f4f5';
   ctx.font = '11px Segoe UI, Tajawal, sans-serif';
   ctx.textAlign = 'right';
   lines.forEach((line, i) => {
-    const color = i === 0 ? '#a855f7' : i === 1 ? '#22d3ee' : '#a1a1aa';
+    const color = i === 0 ? shelf.color : i === 1 ? '#a1a1aa' : i === 2 ? '#22d3ee' : '#a1a1aa';
     ctx.fillStyle = color;
     ctx.fillText(line, tx + maxW - padX, ty + padY + (i + 1) * lineH - 3);
   });
@@ -320,7 +478,6 @@ function roundRect(context, x, y, w, h, r) {
 
 // ─── حلقة التحديث ───
 function gameLoop() {
-  // حركة بالكيبورد
   let dx = 0, dy = 0;
   if (keysDown['ArrowRight'] || keysDown['d']) dx -= MOVE_SPEED;
   if (keysDown['ArrowLeft'] || keysDown['a']) dx += MOVE_SPEED;
@@ -328,12 +485,11 @@ function gameLoop() {
   if (keysDown['ArrowUp'] || keysDown['w']) dy -= MOVE_SPEED;
 
   if (dx !== 0 || dy !== 0) {
-    isMoving = false; // إلغاء الحركة التلقائية عند استخدام الأسهم
+    isMoving = false;
     charX = clamp(charX + dx, CHAR_SIZE, mapWidth - CHAR_SIZE);
     charY = clamp(charY + dy, CHAR_SIZE, mapHeight - CHAR_SIZE);
   }
 
-  // حركة تلقائية (بالضغط على رف)
   if (isMoving) {
     const ddx = targetX - charX;
     const ddy = targetY - charY;
@@ -348,13 +504,12 @@ function gameLoop() {
     }
   }
 
-  // فحص collision مع الأرفف
   tooltipShelf = null;
   for (const rect of shelfRects) {
     const cx = rect.x + rect.w / 2;
     const cy = rect.y + rect.h / 2;
     const dist = Math.sqrt((charX - cx) ** 2 + (charY - cy) ** 2);
-    if (dist < SHELF_W * 0.8) {
+    if (dist < UNIT_W * 0.75) {
       tooltipShelf = rect.shelf;
       break;
     }
@@ -368,24 +523,26 @@ function clamp(val, min, max) {
   return Math.max(min, Math.min(max, val));
 }
 
-// ─── تبديل الطابق ───
-function switchFloor(floor) {
-  currentFloor = floor;
-  shelfRects = layoutShelves(floor);
-  charX = 100;
-  charY = mapHeight / 2;
-  targetX = charX;
-  targetY = charY;
-  isMoving = false;
-  highlightShelf = null;
-  tooltipShelf = null;
+// ─── ضمان سكرول حول الخريطة مهما كانت مقاسات حاوية الـ modal الأصلية ───
+// الخريطة الواقعية أطول من الشكل القديم (10 صفوف + عدة رفوف بكل قسم)
+// فبنلف الـ canvas في حاوية قابلة للسكرول تلقائياً بدل ما يتقطع جزء منها
+function ensureScrollWrapper(originalCanvas) {
+  let wrapper = document.getElementById('library-map-scroll-wrapper');
+  if (wrapper && wrapper.contains(originalCanvas)) return wrapper;
 
-  // تحديث tabs
-  document.querySelectorAll('.map-floor-tab').forEach(tab => {
-    tab.classList.toggle('active', tab.dataset.floor === floor);
-  });
-
-  drawMap();
+  wrapper = document.getElementById('library-map-scroll-wrapper');
+  if (!wrapper) {
+    wrapper = document.createElement('div');
+    wrapper.id = 'library-map-scroll-wrapper';
+    wrapper.style.width = '100%';
+    wrapper.style.height = '100%';
+    wrapper.style.maxHeight = '80vh';
+    wrapper.style.overflow = 'auto';
+    wrapper.style.overscrollBehavior = 'contain';
+    originalCanvas.parentNode.insertBefore(wrapper, originalCanvas);
+  }
+  wrapper.appendChild(originalCanvas);
+  return wrapper;
 }
 
 // ─── فتح الخريطة ───
@@ -395,47 +552,44 @@ window.openLibraryMap = function (biblioId) {
   modal.classList.remove('hidden');
 
   canvas = document.getElementById('library-map-canvas');
+  ensureScrollWrapper(canvas);
   ctx = canvas.getContext('2d');
 
-  // إيجاد الكتاب والطابق
-  let targetFloor = 'ref';
-  let targetShelfCode = null;
+  shelfRects = layoutSections();
+  charX = 110;
+  charY = 110;
+  targetX = charX;
+  targetY = charY;
+  isMoving = false;
+  highlightShelf = null;
+  tooltipShelf = null;
 
-  if (biblioId) {
-    const book = BOOKS_CATALOG.find(b => b.biblio_id === biblioId);
-    if (book) {
-      const loc = book.location || '';
-      const codeMatch = loc.match(/([A-Z][\w-]+\d*)\s*$/i);
-      if (codeMatch) targetShelfCode = codeMatch[1];
-
-      if (/القسم المرجعي/i.test(loc)) targetFloor = 'ref';
-      else if (/الطابق الأول/i.test(loc)) targetFloor = 'floor1';
-      else if (/الطابق الثاني/i.test(loc)) targetFloor = 'floor2';
-      else if (/الطابق الثالث/i.test(loc)) targetFloor = 'floor3';
-    }
-  }
-
-  highlightShelf = targetShelfCode;
-  switchFloor(targetFloor);
-
-  // تحريك الشخصية إلى الرف المحدد
-  if (targetShelfCode) {
-    const rect = shelfRects.find(r => r.shelf.code === targetShelfCode);
+  // إيجاد الرف الفعلي للكتاب مباشرة من رقم ديوي — بدون تحليل نصوص
+  if (biblioId && bookUnitIndex[biblioId]) {
+    const { unitId } = bookUnitIndex[biblioId];
+    highlightShelf = unitId;
+    const rect = shelfRects.find(r => r.shelf.code === unitId);
     if (rect) {
-      // بدء الشخصية من المدخل
-      charX = 100;
-      charY = mapHeight / 2;
       targetX = rect.x + rect.w / 2;
-      targetY = rect.y + rect.h / 2 + SHELF_H;
+      targetY = rect.y + rect.h / 2 + UNIT_H;
       isMoving = true;
+
+      const wrapper = document.getElementById('library-map-scroll-wrapper');
+      if (wrapper) {
+        // نسمح للـ canvas ياخد أبعاده الحقيقية أولاً قبل حساب موضع السكرول
+        requestAnimationFrame(() => {
+          wrapper.scrollTop = Math.max(0, rect.y - wrapper.clientHeight / 2);
+          wrapper.scrollLeft = Math.max(0, rect.x - wrapper.clientWidth / 2);
+        });
+      }
     }
   }
 
-  // تشغيل حلقة الرسم
+  drawMap();
+
   if (animFrameId) cancelAnimationFrame(animFrameId);
   animFrameId = requestAnimationFrame(gameLoop);
 
-  // ربط الأحداث
   bindMapEvents();
 };
 
@@ -450,7 +604,7 @@ window.closeLibraryMapModal = function () {
 };
 
 // ─── أحداث الخريطة ───
-let boundKeyDown, boundKeyUp, boundClick, boundMouseMove;
+let boundKeyDown, boundKeyUp, boundClick;
 
 function bindMapEvents() {
   boundKeyDown = (e) => {
@@ -464,30 +618,22 @@ function bindMapEvents() {
   };
   boundClick = (e) => {
     const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
     const mx = (e.clientX - rect.left);
     const my = (e.clientY - rect.top);
 
-    // فحص الضغط على رف
     for (const sr of shelfRects) {
       if (mx >= sr.x && mx <= sr.x + sr.w && my >= sr.y && my <= sr.y + sr.h) {
         targetX = sr.x + sr.w / 2;
-        targetY = sr.y + sr.h / 2 + SHELF_H;
+        targetY = sr.y + sr.h / 2 + UNIT_H;
         isMoving = true;
         highlightShelf = sr.shelf.code;
         return;
       }
     }
 
-    // حركة حرة للموقع المحدد
     targetX = mx;
     targetY = my;
     isMoving = true;
-  };
-
-  boundMouseMove = (e) => {
-    // تحويل الماوس لعرض hover على الأرفف
-    // (لا نحتاج لفعل شيء — tooltip يعمل بالقرب)
   };
 
   document.addEventListener('keydown', boundKeyDown);
@@ -501,12 +647,3 @@ function unbindMapEvents() {
   if (boundClick) canvas.removeEventListener('click', boundClick);
   keysDown = {};
 }
-
-// ─── ربط tabs الطوابق ───
-document.addEventListener('DOMContentLoaded', () => {
-  document.querySelectorAll('.map-floor-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      switchFloor(tab.dataset.floor);
-    });
-  });
-});
